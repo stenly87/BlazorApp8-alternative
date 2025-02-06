@@ -1,0 +1,265 @@
+﻿@page "/"
+@using BlazorApp8.DB
+@using Microsoft.EntityFrameworkCore
+@using Net.Codecrete.QrCodeGenerator
+@inject NavigationManager navigate;
+@inject HttpClient httpClient;
+@inject User02Context db;
+
+<div class="container">
+
+    <div class="row my-3">
+        <div class="col mb-3">
+            <img src="Logo.svg" alt="" width="100" />
+        </div>
+        <div class="col mb-3">
+            <input type="text" @bind-value="@search" @bind-value:event="oninput" />
+        </div>
+    </div>
+    <div class="row">
+        <b>Сотрудники</b>
+    </div>
+
+    <div class="row">
+        <div class="container">
+            <div class="row flex-nowrap @overflow">
+                @if (employees.Count != 0)
+                    @foreach (var emp in employees)
+                    {
+                        <div class="col-sm-2 my-3 mb-3  ">
+                            <div class="bg-success">
+                                <div class="row">
+                                    <div class="col"><b>@emp.LastName</b></div>
+                                    <div class="col"><b>@emp.FirstName</b></div>
+                                </div>
+                                <div><b>@emp.Patronymic</b></div>
+                                <div>@emp.IdRoleNavigation?.Title</div>
+                                <div>@emp.WorkPhone</div>
+                                <div>@emp.CorporateEmail</div>
+
+                                <div class="row">
+                                    <div class="col">@emp.BirthdayDate?.ToString("dd MMMM")</div>
+                                    <div class="col"><img src="user.png" width="20" @onclick="@(()=>ShowQR(emp))" /></div>
+                                </div>
+                            </div>
+                        </div>
+                    }else
+                {
+                    <div class="col-sm-6 ">
+                        Тут могла бы быть ваша реклама
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+
+    <div class="row my-3">
+        <div class="col-sm-4 mb-3">
+            <b>Календарь событий</b>
+        </div>
+        <div class="col-sm-8 mb-3">
+            <b>Новости</b>
+        </div>
+    </div>
+
+    <div class="row my-3">
+        <div class="col-sm-4 mb-3">
+            <div><img src="calend.png" width="200px" /></div>
+            <b>События</b>
+            @if (events.Count != 0)
+                @foreach (var ev in events)
+                {
+                    <div class="row">
+                        <div class="bg-success mb-3">
+                            <div><b>@ev.Title</b></div>
+                            <div><b>@ev.Description</b></div>
+                            <div class="row">
+                                <div class="col"><img src="tocalend.png" width="20px" onclick="@(()=>ShowIcs(ev))" /></div>
+                                <div class="col"><b>@ev.Date.ToShortDateString()</b></div>
+                                <div class="col"><b>@ev.Author</b></div>
+                            </div>
+                        </div>
+                    </div>
+
+                }else
+            {
+                <div class="col-sm-6 ">
+                    Тут могла бы быть ваша реклама
+                </div>
+            }
+        </div>
+        <div class="col-sm-8 mb-3">
+            <div class="row">
+                @if (news.Count != 0)
+                    @foreach (var n in news)
+                    {
+                        <div class="col-sm-6 ">
+                            <div class="bg-success mb-3">
+                                <div><img src="@n.Image" height="100" /></div>
+                                <div><b>@n.Title</b></div>
+                                <div>@n.Description</div>
+                                <div>@n.Date.ToShortDateString()</div>
+                            </div>
+                        </div>
+
+                    }
+                else
+                {
+                    <div class="col-sm-6 ">
+                        Тут могла бы быть ваша реклама
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<div onclick="@(()=>CloseQR())" style=" ;width:100%;height:100%;position:fixed;top:0;left:0;align-items:center;justify-content:center;@hide">
+    <div style="width:200px;">
+        @((MarkupString)qrcode)
+    </div>
+</div>
+
+@code
+{
+    string overflow = "overflow-scroll";
+    string hide = "z-index:-1000;display:none;";
+    string qrcode = "";
+    List<Employee> employees = new();
+    List<Event> events = new();
+    List<News> news = new();
+
+    string find;
+
+    string _search = "";
+    string search
+    {
+        get => _search;
+        set
+        {
+            _search = value;
+            RunSeach();
+        }
+    }
+
+    void RunSeach()
+    {
+        find = search.ToLower();
+
+        // var result = await httpClient.GetFromJsonAsync<List<Employee>>("");
+        employees = db.Employees.Include(s => s.IdRoleNavigation).Where(s =>
+             s.FirstName.ToLower().Contains(find) ||
+        s.LastName.ToLower().Contains(find) ||
+        (s.Patronymic != null && s.Patronymic.ToLower().Contains(find)) ||
+        s.CorporateEmail.ToLower().Contains(find) ||
+        s.WorkPhone.ToLower().Contains(find) ||
+        s.BirthdayDate.ToString().Contains(find) ||
+        (s.IdRoleNavigation != null && s.IdRoleNavigation.Title.ToLower().Contains(find))
+
+        ).ToList();
+
+        if (employees.Count > 6)
+            overflow = "overflow-scroll";
+        else
+            overflow = "";
+
+        GetEvents();
+
+        GetRss();
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    protected override void OnInitialized()
+    {
+        base.OnInitialized();
+        RunSeach();
+    }
+
+    void ShowQR(Employee emp)
+    {
+        string card =
+        "BEGIN:VCARD\n" +
+        "VERSION:3.0\n" +
+        $"N:{emp.FirstName}\n" +
+        $"FN:{emp.LastName}\n" +
+        "ORG:ГК Дороги России\n" +
+        $"TITLE:{emp.IdRoleNavigation?.Title}\n" +
+        $"TEL;WORK;VOICE:{emp.WorkPhone}\n" +
+        $"TEL;CELL:{emp.PersonalPhone}\n" +
+        $"EMAIL;WORK;INTERNET:{emp.CorporateEmail}\n" +
+        "END:VCARD\n";
+
+        var qr = QrCode.EncodeText(card, QrCode.Ecc.Medium);
+        string svg = qr.ToSvgString(4);
+        qrcode = svg;
+        hide = "z-index:1000;display:flex;";
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    void ShowIcs(Event ev)
+    {
+        string file = "BEGIN:VCALENDAR\n" +
+        "VERSION:2.0\n" +
+        "BEGIN:VEVENT\n" +
+        "SUMMARY:наименование события\n" +
+        $"DTSTART:{ev.Date.ToShortDateString()}\n" +
+        $"DTEND:{ev.Date.ToShortDateString()}\n" +
+        $"DTSTAMP:{ev.Date.ToShortDateString()}\n" +
+        $"UID:{ev.Title.GetHashCode().ToString()}\n" +
+        $"DESCRIPTION:{ev.Description}\n" +
+        "LOCATION:место события\n" +
+        $"ORGANIZER:{ev.Author}\n" +
+        "STATUS:CONFIRMED\n" +
+        "PRIORITY:0\n" +
+        "END:VEVENT\n" +
+        "END:VCALENDAR\n";
+
+        File.WriteAllText(Environment.CurrentDirectory + $"/wwwroot/{ev.Title}.ics", file);
+
+        navigate.NavigateTo($"{ev.Title}.ics", true);
+    }
+
+    void CloseQR()
+    {
+        hide = "z-index:-1000;display:none;";
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    void GetEvents()
+    {
+        events = DBEvents.Events.Where(s =>
+            s.Title.ToLower().Contains(find) ||
+            s.Description.ToLower().Contains(find) ||
+            s.Author.ToLower().Contains(find) ||
+            s.Date.ToString().ToLower().Contains(find)).ToList();
+    }
+
+    async Task GetRss()
+    {
+        var result = await httpClient.GetAsync("https://primamedia.ru/export/new/news_main43.rss");
+
+        var str = await result.Content.ReadAsStringAsync();
+
+        var document = System.Xml.Linq.XDocument.Parse(str);
+
+        var newsResult = document.Descendants("item").Select(s => new News
+            {
+                Title = s.Element("title")?.Value,
+                Description = s.Element("description")?.Value,
+                Date = DateTime.Parse(s.Element("pubDate")?.Value),
+                Image = s.Element("enclosure")?.Attribute("url")?.Value
+            });
+
+        news = newsResult.Where(s =>
+            s.Title.ToLower().Contains(find) ||
+            s.Description.ToLower().Contains(find) ||
+            s.Date.ToString().ToLower().Contains(find)
+            ).ToList();
+
+        InvokeAsync(StateHasChanged);
+    }
+}
